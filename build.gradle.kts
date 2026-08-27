@@ -1,0 +1,4 @@
+// Root build file. Versi plugin sengaja dipisah ke sini supaya app/ bersih.
+plugins {
+    id("com.android.application") version "8.7.0" apply false
+}
