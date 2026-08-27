@@ -18,7 +18,7 @@ jobs:
       # NDK dan CMake sudah ada di runner; tidak ada yang perlu dipasang.
       # ---------------------------------------------------------------
       - name: JDK 17
-        uses: actions/setup-java@v4
+        uses: actions/setup-java@v5
         with:
           distribution: temurin
           java-version: '17'
@@ -57,9 +57,34 @@ jobs:
               https://github.com/libsdl-org/SDL.git app/src/main/cpp/SDL3 \
             || git clone --depth 1 \
               https://github.com/libsdl-org/SDL.git app/src/main/cpp/SDL3
-          echo "--- modul Java SDL3 yang dirujuk settings.gradle.kts ---"
-          ls -d app/src/main/cpp/SDL3/android-project/app \
-            || echo "PERINGATAN: tata letak android-project berbeda"
+
+          # Sumber Java SDL (org/libsdl/app) DISALIN ke modul app kita.
+          #
+          # Jangan menyertakan android-project/app milik SDL sebagai modul
+          # Gradle: folder itu modul APLIKASI lengkap dengan plugin
+          # com.android.application sendiri, dan satu build tidak boleh punya
+          # dua modul aplikasi. Gradle menolak sebelum mengompilasi apa pun.
+          SDLJAVA=app/src/main/cpp/SDL3/android-project/app/src/main/java
+          test -d "$SDLJAVA/org/libsdl/app" \
+            || { echo "GAGAL: sumber Java SDL tidak ada di $SDLJAVA"; \
+                 find app/src/main/cpp/SDL3 -name SDLActivity.java; exit 1; }
+          mkdir -p app/src/main/java
+          cp -r "$SDLJAVA/org" app/src/main/java/
+          echo "Kelas Java SDL yang disalin: $(find app/src/main/java/org -name '*.java' | wc -l)"
+
+          # android-project milik SDL DIBUANG setelah sumber Java-nya diambil.
+          #
+          # Di dalamnya ada gradle/wrapper/gradle-wrapper.jar, dan
+          # setup-gradle memvalidasi SETIAP gradle-wrapper.jar di workspace
+          # terhadap daftar checksum resmi. Jar milik SDL tidak ada di daftar
+          # itu, jadi seluruh build dihentikan dengan:
+          #
+          #   Error: At least one Gradle Wrapper Jar failed validation!
+          #
+          # Kita tidak memakai android-project sama sekali — cuma sumber Java
+          # di dalamnya, dan itu sudah disalin di atas.
+          rm -rf app/src/main/cpp/SDL3/android-project
+          echo "gradle-wrapper.jar tersisa di workspace: $(find . -name gradle-wrapper.jar | wc -l)"
 
       - name: GLM
         run: |
@@ -112,6 +137,10 @@ jobs:
         uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: '8.9'
+          # Sabuk pengaman kedua. Kita tidak memakai wrapper sama sekali, jadi
+          # tidak ada yang perlu divalidasi — dan kalau nanti ada dependensi
+          # lain yang membawa jar wrapper sendiri, build tidak ikut mati.
+          validate-wrappers: false
 
       - name: Build APK
         run: gradle assembleDebug --no-daemon --stacktrace
