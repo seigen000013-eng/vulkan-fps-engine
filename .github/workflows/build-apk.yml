@@ -93,6 +93,26 @@ jobs:
             https://github.com/g-truc/glm.git /tmp/glm
           cp -r /tmp/glm/glm app/src/main/cpp/glm
 
+      # Vulkan-Hpp (vulkan/vulkan.hpp) TIDAK ADA di NDK.
+      #
+      # NDK cuma membawa header C: vulkan/vulkan.h, vulkan_core.h, dan
+      # seterusnya. Binding C++ vulkan.hpp adalah proyek terpisah
+      # (KhronosGroup/Vulkan-Headers) — di Termux ia datang dari paket
+      # vulkan-headers, jadi selama ini selalu ada tanpa pernah disadari.
+      #
+      # main2.cpp memakai vk:: sebanyak 1131 kali, jadi tanpa header ini
+      # kompilasi berhenti di baris #include pertama.
+      - name: Vulkan-Headers
+        run: |
+          set -e
+          git clone --depth 1 \
+            https://github.com/KhronosGroup/Vulkan-Headers.git /tmp/vkh
+          cp -r /tmp/vkh/include/vulkan app/src/main/cpp/vulkan
+          cp -r /tmp/vkh/include/vk_video app/src/main/cpp/vk_video
+          test -f app/src/main/cpp/vulkan/vulkan.hpp \
+            && echo "vulkan.hpp siap" \
+            || { echo "GAGAL: vulkan.hpp tidak ada"; exit 1; }
+
       # ---------------------------------------------------------------
       # Shader. glslc datang dari paket glslang-tools; namanya di sana
       # glslangValidator, dan compile_shaders.sh sudah punya jalur
@@ -144,34 +164,30 @@ jobs:
 
       - name: Build APK
         run: |
-          # set -o pipefail WAJIB, dan ketiadaannya adalah bug saya di versi
-          # sebelumnya.
-          #
-          # Di dalam pipeline `gradle ... | tee log`, status keluar yang dilihat
-          # shell adalah status PERINTAH TERAKHIR — yaitu tee, yang hampir
-          # selalu 0. Jadi ketika gradle GAGAL, langkah ini tetap dianggap
-          # BERHASIL, blok penanganan error tidak pernah jalan, dan kegagalan
-          # baru muncul di langkah berikutnya sebagai
-          # "No files were found with the provided path: .../*.apk" —
-          # gejala yang menyesatkan, karena masalahnya bukan di pengunggahan.
-          #
-          # pipefail membuat status pipeline mengikuti perintah yang gagal.
           set -o pipefail
 
-          gradle assembleDebug --no-daemon --info 2>&1 | tee /tmp/gradle.log || {
+          gradle assembleDebug --no-daemon 2>&1 | tee /tmp/gradle.log || {
+              # awk 'NR<=N', BUKAN head -N.
+              #
+              # head menutup pipa begitu kuotanya penuh, dan perintah di
+              # hulunya mati dengan SIGPIPE — itulah "sed: couldn't flush
+              # stdout: Broken pipe" yang memotong pesan compiler tepat
+              # ketika ia paling dibutuhkan. awk membaca sampai habis.
               echo ""
-              echo "=================== PENYEBAB KEGAGALAN ==================="
-              sed -n '/What went wrong/,/^\* Try:/p' /tmp/gradle.log | head -60
+              echo "=========== ERROR COMPILER ==========="
+              grep -A 25 '^FAILED:' /tmp/gradle.log | awk 'NR<=120' || true
               echo ""
-              echo "--- baris yang mengandung 'error:' ---"
-              grep -i "error:" /tmp/gradle.log | head -30 || true
-              echo "========================================================="
+              echo "=========== BARIS error: ==========="
+              grep 'error:' /tmp/gradle.log | awk 'NR<=40' || true
+              echo ""
+              echo "=========== WHAT WENT WRONG ==========="
+              awk '/What went wrong/,/^\* Try:/' /tmp/gradle.log | awk 'NR<=40' || true
+              echo "======================================="
               exit 1
           }
 
           echo "--- isi app/build/outputs ---"
-          find app/build/outputs -type f 2>/dev/null | head -20 \
-            || echo "  (folder outputs tidak ada)"
+          find app/build/outputs -type f 2>/dev/null | awk 'NR<=20'
 
       - name: Unggah APK
         uses: actions/upload-artifact@v4
