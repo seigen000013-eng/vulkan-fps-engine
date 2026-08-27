@@ -143,7 +143,20 @@ jobs:
           validate-wrappers: false
 
       - name: Build APK
-        run: gradle assembleDebug --no-daemon --stacktrace
+        run: |
+          set -e
+          # --stacktrace membanjiri log dengan jejak internal Gradle sampai
+          # pesan "What went wrong" tergeser jauh ke atas dan sulit dicari di
+          # layar HP. --info lebih berguna, dan blok di bawah memastikan
+          # penyebabnya tercetak PALING AKHIR, tepat di ujung log.
+          gradle assembleDebug --no-daemon --info 2>&1 | tee /tmp/gradle.log \
+            || {
+              echo ""
+              echo "=================== PENYEBAB KEGAGALAN ==================="
+              sed -n '/What went wrong/,/^\* Try:/p' /tmp/gradle.log | head -40
+              echo "========================================================="
+              exit 1
+            }
 
       - name: Unggah APK
         uses: actions/upload-artifact@v4
