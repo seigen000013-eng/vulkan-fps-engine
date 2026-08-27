@@ -1,0 +1,94 @@
+name: Build APK
+
+# Jalan otomatis tiap push, dan bisa juga ditekan manual dari tab Actions.
+on:
+  push:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Ambil kode
+        uses: actions/checkout@v4
+
+      # ---------------------------------------------------------------
+      # Toolchain. Android SDK sudah terpasang di runner ubuntu-latest;
+      # NDK dan CMake dipasang lewat sdkmanager di bawah.
+      # ---------------------------------------------------------------
+      - name: JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: NDK + CMake
+        run: |
+          set -e
+          yes | sdkmanager --licenses >/dev/null 2>&1 || true
+          sdkmanager "ndk;27.0.12077973" "cmake;3.22.1" "platforms;android-35"
+          echo "ANDROID_NDK_HOME=$ANDROID_SDK_ROOT/ndk/27.0.12077973" >> $GITHUB_ENV
+
+      # ---------------------------------------------------------------
+      # Dependensi sumber. Keduanya di-clone dengan --depth 1 supaya
+      # tidak menarik seluruh riwayat git.
+      # ---------------------------------------------------------------
+      - name: SDL3
+        run: |
+          set -e
+          git clone --depth 1 --branch release-3.2.10 \
+            https://github.com/libsdl-org/SDL.git app/src/main/cpp/SDL3
+
+      - name: GLM
+        run: |
+          set -e
+          git clone --depth 1 --branch 1.0.1 \
+            https://github.com/g-truc/glm.git /tmp/glm
+          cp -r /tmp/glm/glm app/src/main/cpp/glm
+
+      # ---------------------------------------------------------------
+      # Shader. glslc datang dari paket glslang-tools; namanya di sana
+      # glslangValidator, dan compile_shaders.sh sudah punya jalur
+      # fallback untuk itu.
+      #
+      # VK_ENV=vulkan1.1 WAJIB: driver Mali-G52 melaporkan 1.1.131 dan
+      # akan menolak SPIR-V 1.6.
+      # ---------------------------------------------------------------
+      - name: Kompilasi shader
+        run: |
+          set -e
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq glslang-tools
+          chmod +x compile_shaders.sh
+          VK_ENV=vulkan1.1 ./compile_shaders.sh shaders.cpp .
+
+      - name: Salin aset ke APK
+        run: |
+          set -e
+          mkdir -p app/src/main/assets
+          cp *.spv app/src/main/assets/
+          cp tree.obj app/src/main/assets/
+          echo "Aset yang masuk APK:"
+          ls -1 app/src/main/assets/ | sed 's/^/  /'
+          test "$(ls app/src/main/assets/*.spv | wc -l)" -ge 18 \
+            || { echo "GAGAL: .spv terlalu sedikit"; exit 1; }
+
+      - name: Salin main2.cpp ke modul native
+        run: cp main2.cpp app/src/main/cpp/main2.cpp
+
+      # ---------------------------------------------------------------
+      # Build
+      # ---------------------------------------------------------------
+      - name: Gradle assembleDebug
+        run: |
+          set -e
+          chmod +x gradlew || true
+          ./gradlew assembleDebug --no-daemon --stacktrace
+
+      - name: Unggah APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: VulkanFPS-debug-apk
+          path: app/build/outputs/apk/debug/*.apk
+          if-no-files-found: error
