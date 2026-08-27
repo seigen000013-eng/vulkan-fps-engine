@@ -26,13 +26,32 @@ set -euo pipefail
 
 SRC="${1:-shaders.cpp}"
 OUT="${2:-.}"
+# Sumber C++ tempat nama .spv dibaca untuk penjagaan di bawah.
+MAIN_SRC="${MAIN_SRC:-main2.cpp}"
 TMP="$(mktemp -d)"
 trap 'rm -rf "$TMP"' EXIT
 
-# main2.cpp membuat instance dengan VK_API_VERSION_1_3, jadi target-env-nya
-# harus ikut 1.3 — kalau lebih rendah, validation layer akan protes soal
-# SPIR-V environment mismatch.
-VK_ENV="vulkan1.3"
+# v72: vulkan1.3 -> vulkan1.1.
+#
+# INI MEMBLOKIR SEMUA SHADER DI PERANGKAT MALI-mu, dan gagalnya tidak terlihat
+# di sini melainkan saat runtime.
+#
+# --target-env menentukan versi SPIR-V yang dihasilkan:
+#     vulkan1.1 -> SPIR-V 1.3
+#     vulkan1.3 -> SPIR-V 1.6
+#
+# vulkaninfo melaporkan device-mu apiVersion 1.1.131. Driver Vulkan 1.1 hanya
+# menerima SPIR-V sampai 1.3; modul SPIR-V 1.6 akan DITOLAK saat
+# vkCreateShaderModule. Selama llvmpipe (yang mendukung 1.3) masih terpasang
+# ini tidak pernah ketahuan.
+#
+# Diperiksa: shader-mu tidak memakai satu pun fitur yang butuh di atas
+# SPIR-V 1.3 — tidak ada nonuniformEXT, buffer_reference, scalar layout,
+# maupun operasi subgroup. Satu-satunya ekstensi yang dipakai
+# GL_EXT_control_flow_attributes, dan itu sudah ada sejak SPIR-V 1.3.
+#
+# Kalau nanti pindah ke perangkat yang mendukung 1.3, kembalikan saja.
+VK_ENV="${VK_ENV:-vulkan1.1}"
 
 if [ ! -f "$SRC" ]; then
     echo "ERROR: file tidak ditemukan: $SRC" >&2
@@ -186,20 +205,19 @@ done
 # masih ditulis tangan, dan memang harus begitu: ia mencerminkan apa yang
 # DIMINTA main2.cpp, bukan apa yang kebetulan ada di shaders.cpp. Justru karena
 # itu ia tetap berguna — ia menangkap ketidaksinkronan antara kedua file.
-REQUIRED="
-prepass.vert.spv prepass.frag.spv
-csm_shadow.vert.spv csm_shadow.frag.spv
-ao_resolve.comp.spv
-volumetric.comp.spv
-csm_resolve.comp.spv
-shadow_temporal.comp.spv
-svgf_atrous.comp.spv
-main.vert.spv main.frag.spv
-sky.vert.spv sky.frag.spv
-taa_resolve.comp.spv
-composite.vert.spv composite.frag.spv
-joystick.vert.spv joystick.frag.spv
-"
+# Daftar ini TIDAK ditulis tangan lagi. Ia dibaca dari main2.cpp: setiap
+# literal "nama.spv" di sana adalah berkas yang benar-benar diminta runtime.
+# Daftar tangan hanya mencerminkan keadaan pada hari ia ditulis — sky.vert
+# dan bloom.comp dulu terlewat karenanya.
+if [ -f "$MAIN_SRC" ]; then
+    REQUIRED=$(grep -oE '"[a-z_]+\.(vert|frag|comp)\.spv"' "$MAIN_SRC" \
+               | tr -d '"' | sort -u)
+    echo ">> daftar wajib diturunkan dari $MAIN_SRC: $(echo $REQUIRED | wc -w) berkas"
+else
+    echo ">> PERINGATAN: $MAIN_SRC tidak ada, penjagaan .spv dilewati" >&2
+    REQUIRED=""
+fi
+
 NOTFOUND=""
 for r in $REQUIRED; do
     [ -f "$OUT/$r" ] || NOTFOUND="$NOTFOUND $r"
