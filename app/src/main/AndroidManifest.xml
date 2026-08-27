@@ -1,0 +1,41 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <!-- Vulkan 1.1 (0x00401000): sesuai apiVersion yang diminta main2.cpp dan
+         sesuai Mali-G52 MC2 yang melaporkan 1.1.131. Kalau ditulis versi lebih
+         tinggi, perangkat ini akan dianggap tidak kompatibel. -->
+    <uses-feature android:name="android.hardware.vulkan.version"
+                  android:version="0x00401000"
+                  android:required="true" />
+    <uses-feature android:name="android.hardware.vulkan.level"
+                  android:version="0"
+                  android:required="true" />
+
+    <!-- Joystick di layar satu-satunya kontrol. -->
+    <uses-feature android:name="android.hardware.touchscreen"
+                  android:required="true" />
+
+    <application
+        android:label="Vulkan FPS"
+        android:allowBackup="false"
+        android:hasCode="true">
+
+        <!-- configChanges panjang di bawah WAJIB. Tanpanya Android
+             menghancurkan dan membuat ulang Activity tiap rotasi atau
+             perubahan ukuran, dan seluruh device Vulkan ikut hilang. -->
+        <activity
+            android:name=".EngineActivity"
+            android:exported="true"
+            android:label="Vulkan FPS"
+            android:screenOrientation="sensorLandscape"
+            android:configChanges="keyboard|keyboardHidden|navigation|orientation|screenSize|screenLayout|smallestScreenSize|uiMode|density"
+
+            android:launchMode="singleTask">
+
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+    </application>
+</manifest>
