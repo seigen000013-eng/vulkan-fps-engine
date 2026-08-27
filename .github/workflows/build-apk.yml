@@ -15,7 +15,7 @@ jobs:
 
       # ---------------------------------------------------------------
       # Toolchain. Android SDK sudah terpasang di runner ubuntu-latest;
-      # NDK dan CMake dipasang lewat sdkmanager di bawah.
+      # NDK dan CMake sudah ada di runner; tidak ada yang perlu dipasang.
       # ---------------------------------------------------------------
       - name: JDK 17
         uses: actions/setup-java@v4
@@ -23,22 +23,43 @@ jobs:
           distribution: temurin
           java-version: '17'
 
-      - name: NDK + CMake
+      # Runner ubuntu-latest SUDAH membawa Android SDK, NDK, dan CMake.
+      # Versi pertama workflow ini memanggil sdkmanager untuk memasang versi NDK
+      # tertentu, dan di situ ia mati dalam 8 detik — entah karena sdkmanager
+      # tidak ada di PATH, ANDROID_SDK_ROOT kosong, atau versi NDK yang saya
+      # sebut sudah tidak tersedia.
+      #
+      # Memasang apa pun di sini tidak perlu: biarkan Android Gradle Plugin
+      # memakai NDK yang sudah ada. Langkah di bawah cuma MENCETAK apa yang
+      # tersedia, jadi kalau tetap gagal, log-nya menyebutkan versi mana yang
+      # ada alih-alih membuat kita menebak.
+      - name: Periksa toolchain
         run: |
-          set -e
-          yes | sdkmanager --licenses >/dev/null 2>&1 || true
-          sdkmanager "ndk;27.0.12077973" "cmake;3.22.1" "platforms;android-35"
-          echo "ANDROID_NDK_HOME=$ANDROID_SDK_ROOT/ndk/27.0.12077973" >> $GITHUB_ENV
+          echo "ANDROID_HOME     = ${ANDROID_HOME:-<kosong>}"
+          echo "ANDROID_SDK_ROOT = ${ANDROID_SDK_ROOT:-<kosong>}"
+          SDK="${ANDROID_HOME:-/usr/local/lib/android/sdk}"
+          echo "--- NDK terpasang ---"
+          ls -1 "$SDK/ndk" 2>/dev/null || echo "  (tidak ada folder ndk)"
+          echo "--- CMake terpasang ---"
+          ls -1 "$SDK/cmake" 2>/dev/null || echo "  (tidak ada folder cmake)"
+          java -version 2>&1
 
       # ---------------------------------------------------------------
       # Dependensi sumber. Keduanya di-clone dengan --depth 1 supaya
       # tidak menarik seluruh riwayat git.
       # ---------------------------------------------------------------
+      # Tag rilis bisa bergeser. Kalau tag yang disebut tidak ada, jatuh ke
+      # cabang default alih-alih menggagalkan build karena satu nama.
       - name: SDL3
         run: |
           set -e
           git clone --depth 1 --branch release-3.2.10 \
-            https://github.com/libsdl-org/SDL.git app/src/main/cpp/SDL3
+              https://github.com/libsdl-org/SDL.git app/src/main/cpp/SDL3 \
+            || git clone --depth 1 \
+              https://github.com/libsdl-org/SDL.git app/src/main/cpp/SDL3
+          echo "--- modul Java SDL3 yang dirujuk settings.gradle.kts ---"
+          ls -d app/src/main/cpp/SDL3/android-project/app \
+            || echo "PERINGATAN: tata letak android-project berbeda"
 
       - name: GLM
         run: |
@@ -80,11 +101,20 @@ jobs:
       # ---------------------------------------------------------------
       # Build
       # ---------------------------------------------------------------
-      - name: Gradle assembleDebug
-        run: |
-          set -e
-          chmod +x gradlew || true
-          ./gradlew assembleDebug --no-daemon --stacktrace
+      # Gradle dipasang langsung, TIDAK lewat ./gradlew.
+      #
+      # Gradle wrapper butuh gradle-wrapper.jar — berkas BINER yang merepotkan
+      # diunggah lewat browser HP, dan tanpa jar itu ./gradlew gagal dengan
+      # pesan yang membingungkan ("ClassNotFoundException: GradleWrapperMain").
+      # Runner ini bisa memasang Gradle sendiri, jadi wrapper tidak diperlukan
+      # sama sekali.
+      - name: Pasang Gradle
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.9'
+
+      - name: Build APK
+        run: gradle assembleDebug --no-daemon --stacktrace
 
       - name: Unggah APK
         uses: actions/upload-artifact@v4
