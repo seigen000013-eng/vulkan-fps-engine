@@ -144,23 +144,41 @@ jobs:
 
       - name: Build APK
         run: |
-          set -e
-          # --stacktrace membanjiri log dengan jejak internal Gradle sampai
-          # pesan "What went wrong" tergeser jauh ke atas dan sulit dicari di
-          # layar HP. --info lebih berguna, dan blok di bawah memastikan
-          # penyebabnya tercetak PALING AKHIR, tepat di ujung log.
-          gradle assembleDebug --no-daemon --info 2>&1 | tee /tmp/gradle.log \
-            || {
+          # set -o pipefail WAJIB, dan ketiadaannya adalah bug saya di versi
+          # sebelumnya.
+          #
+          # Di dalam pipeline `gradle ... | tee log`, status keluar yang dilihat
+          # shell adalah status PERINTAH TERAKHIR — yaitu tee, yang hampir
+          # selalu 0. Jadi ketika gradle GAGAL, langkah ini tetap dianggap
+          # BERHASIL, blok penanganan error tidak pernah jalan, dan kegagalan
+          # baru muncul di langkah berikutnya sebagai
+          # "No files were found with the provided path: .../*.apk" —
+          # gejala yang menyesatkan, karena masalahnya bukan di pengunggahan.
+          #
+          # pipefail membuat status pipeline mengikuti perintah yang gagal.
+          set -o pipefail
+
+          gradle assembleDebug --no-daemon --info 2>&1 | tee /tmp/gradle.log || {
               echo ""
               echo "=================== PENYEBAB KEGAGALAN ==================="
-              sed -n '/What went wrong/,/^\* Try:/p' /tmp/gradle.log | head -40
+              sed -n '/What went wrong/,/^\* Try:/p' /tmp/gradle.log | head -60
+              echo ""
+              echo "--- baris yang mengandung 'error:' ---"
+              grep -i "error:" /tmp/gradle.log | head -30 || true
               echo "========================================================="
               exit 1
-            }
+          }
+
+          echo "--- isi app/build/outputs ---"
+          find app/build/outputs -type f 2>/dev/null | head -20 \
+            || echo "  (folder outputs tidak ada)"
 
       - name: Unggah APK
         uses: actions/upload-artifact@v4
         with:
           name: VulkanFPS-debug-apk
-          path: app/build/outputs/apk/debug/*.apk
+          # Pola diperluas: kalau AGP menaruh APK di subfolder lain (mis. per
+          # ABI), ia tetap terjaring.
+          path: |
+            app/build/outputs/apk/**/*.apk
           if-no-files-found: error
