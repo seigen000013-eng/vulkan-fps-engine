@@ -17,6 +17,15 @@ add_library(glm_headers INTERFACE)
 target_include_directories(glm_headers INTERFACE glm)
 
 # ---------------------------------------------------------------------------
+# Vulkan-Hpp. NDK cuma membawa header C (vulkan/vulkan.h); binding C++
+# vulkan.hpp datang dari KhronosGroup/Vulkan-Headers dan disalin ke sini oleh
+# workflow. Direktori INI harus mendahului header NDK, kalau tidak vulkan.hpp
+# tetap tidak ketemu.
+# ---------------------------------------------------------------------------
+add_library(vulkan_hpp_headers INTERFACE)
+target_include_directories(vulkan_hpp_headers INTERFACE ${CMAKE_CURRENT_SOURCE_DIR})
+
+# ---------------------------------------------------------------------------
 # Engine
 #
 # NAMANYA HARUS "vulkanfps" — cocok dengan getLibraries() di EngineActivity.
@@ -29,6 +38,7 @@ target_link_libraries(vulkanfps
     PRIVATE
         SDL3::SDL3
         glm_headers
+        vulkan_hpp_headers
         vulkan          # libvulkan.so milik Android, bukan Mesa
         android
         log)
