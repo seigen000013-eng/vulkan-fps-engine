@@ -6,16 +6,13 @@ android {
 
     defaultConfig {
         applicationId = "com.vulkanfps.engine"
-
-        // 26 = Android 8.0. Vulkan baru benar-benar bisa diandalkan sejak sini.
         minSdk    = 26
         targetSdk = 35
         versionCode = 1
         versionName = "1.0"
 
         ndk {
-            // HANYA arm64. Membangun untuk armeabi-v7a menggandakan waktu build
-            // dan ukuran APK untuk arsitektur yang tidak kamu pakai.
+            // HANYA arm64 — armeabi-v7a cuma menggandakan waktu build.
             abiFilters += listOf("arm64-v8a")
         }
 
@@ -41,14 +38,11 @@ android {
     buildTypes {
         release {
             isMinifyEnabled = false
-            // Debug symbol dibuang dari APK rilis; ukurannya turun drastis.
             ndk { debugSymbolLevel = "NONE" }
         }
     }
 
-    // .spv sudah terkompresi buruk dan HARUS bisa dibaca apa adanya.
-    // Tanpa baris ini, SDL_LoadFile tetap jalan, tapi tiap pemuatan shader
-    // harus melewati dekompresi — sia-sia untuk berkas biner.
+    // .spv harus bisa dibaca apa adanya, tanpa melewati dekompresi.
     androidResources { noCompress += listOf("spv", "obj") }
 
     compileOptions {
@@ -57,7 +51,6 @@ android {
     }
 }
 
-dependencies {
-    // SDL3 sisi Java. Path relatif ke tempat kamu menaruh sumber SDL3.
-    implementation(project(":SDL3"))
-}
+// Tidak ada blok dependencies{}. Sumber Java SDL3 disalin langsung ke
+// app/src/main/java oleh workflow, jadi ia dikompilasi sebagai bagian dari
+// modul ini — bukan sebagai modul Gradle terpisah.
